@@ -23,6 +23,7 @@ public class MatchingEngineService {
     private final ObjectMapper objectMapper;
     private final Map<String, OrderBook> orderBooks = new ConcurrentHashMap<>();
     private final Map<String, OrderStatus> orderStatuses = new ConcurrentHashMap<>();
+    private final Map<String, java.util.List<ExecutionEvent>> executionFeed = new ConcurrentHashMap<>();
 
     public MatchingEngineService(MessagePublisher orderPublisher, ObjectMapper objectMapper) {
         this.orderPublisher = orderPublisher;
@@ -32,11 +33,16 @@ public class MatchingEngineService {
     public boolean processOrder(OrderMessage order) {
         order.validate();
         OrderBook orderBook = orderBooks.computeIfAbsent(order.getInstrumentId(), key -> new OrderBook());
-        OrderStatus status = new OrderStatus(order.getClientOrderId(), order.getInstrumentId(), order.getSide(), "NEW", order.getQuantity());
-        orderStatuses.put(order.getClientOrderId(), status);
+        OrderStatus status = orderStatuses.computeIfAbsent(order.getClientOrderId(), id ->
+                new OrderStatus(id, order.getInstrumentId(), order.getSide(), "NEW", order.getQuantity()));
+        status.setInstrumentId(order.getInstrumentId());
+        status.setSide(order.getSide());
+        status.setQuantity(order.getQuantity());
+        status.setStatus("LIVE");
+
         boolean accepted = orderBook.process(order);
-        if (accepted) {
-            status.setStatus("LIVE");
+        if (accepted && order.getQuantity() != null && order.getQuantity() == 0) {
+            status.setStatus("FILLED");
         }
         return accepted;
     }
@@ -58,6 +64,10 @@ public class MatchingEngineService {
         return snapshot;
     }
 
+    public java.util.List<ExecutionEvent> getExecutionFeed(String instrumentId) {
+        return executionFeed.getOrDefault(instrumentId, java.util.Collections.emptyList());
+    }
+
     private void publishExecution(OrderMessage incoming, OrderMessage resting, long matchPrice, long tradeQty) {
         String buyOrderId = "BUY".equalsIgnoreCase(incoming.getSide()) ? incoming.getClientOrderId() : resting.getClientOrderId();
         String sellOrderId = "SELL".equalsIgnoreCase(incoming.getSide()) ? incoming.getClientOrderId() : resting.getClientOrderId();
@@ -70,17 +80,40 @@ public class MatchingEngineService {
                 buyOrderId,
                 sellOrderId);
 
+        executionFeed.computeIfAbsent(incoming.getInstrumentId(), key -> new java.util.ArrayList<>()).add(event);
+        if (!incoming.getInstrumentId().equals(resting.getInstrumentId())) {
+            executionFeed.computeIfAbsent(resting.getInstrumentId(), key -> new java.util.ArrayList<>()).add(event);
+        }
+
         try {
             orderPublisher.publish(objectMapper.writeValueAsBytes(event));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to serialize execution event", e);
         }
+
+        OrderStatus incomingStatus = orderStatuses.get(incoming.getClientOrderId());
+        if (incomingStatus != null) {
+            if (incoming.getQuantity() != null && incoming.getQuantity() <= 0) {
+                incomingStatus.setStatus("FILLED");
+            } else if (incoming.getQuantity() != null && incoming.getQuantity() > 0) {
+                incomingStatus.setStatus("PARTIALLY_FILLED");
+            }
+        }
+
+        OrderStatus restingStatus = orderStatuses.get(resting.getClientOrderId());
+        if (restingStatus != null) {
+            if (resting.getQuantity() != null && resting.getQuantity() <= 0) {
+                restingStatus.setStatus("FILLED");
+            } else if (resting.getQuantity() != null && resting.getQuantity() > 0) {
+                restingStatus.setStatus("PARTIALLY_FILLED");
+            }
+        }
     }
 
     public static class OrderStatus {
         private final String clientOrderId;
-        private final String instrumentId;
-        private final String side;
+        private String instrumentId;
+        private String side;
         private String status;
         private Long quantity;
 
@@ -94,7 +127,9 @@ public class MatchingEngineService {
 
         public String getClientOrderId() { return clientOrderId; }
         public String getInstrumentId() { return instrumentId; }
+        public void setInstrumentId(String instrumentId) { this.instrumentId = instrumentId; }
         public String getSide() { return side; }
+        public void setSide(String side) { this.side = side; }
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
         public Long getQuantity() { return quantity; }

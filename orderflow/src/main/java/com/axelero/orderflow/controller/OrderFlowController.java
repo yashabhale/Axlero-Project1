@@ -67,4 +67,20 @@ public class OrderFlowController {
                 "quantity", status.getQuantity()
         ));
     }
+
+    @GetMapping("/executions/{instrumentId}")
+    public ResponseEntity<java.util.List<Map<String, Object>>> getExecutions(@PathVariable String instrumentId) {
+        java.util.List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (var event : matchingEngineService.getExecutionFeed(instrumentId)) {
+            result.add(Map.of(
+                    "eventType", event.getEventType(),
+                    "instrumentId", event.getInstrumentId(),
+                    "matchPrice", event.getMatchPrice(),
+                    "quantity", event.getQuantity(),
+                    "buyOrderId", event.getBuyOrderId(),
+                    "sellOrderId", event.getSellOrderId(),
+                    "eventTime", event.getEventTime()));
+        }
+        return ResponseEntity.ok(result);
+    }
 }

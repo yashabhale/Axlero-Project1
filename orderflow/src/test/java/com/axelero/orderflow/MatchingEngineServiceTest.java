@@ -119,4 +119,40 @@ class MatchingEngineServiceTest {
         assertEquals("LIVE", service.getOrderStatus("buy-100").getStatus());
         assertTrue(service.getBookSnapshot("ACME").containsKey("bids"));
     }
+
+    @Test
+    void shouldUpdateLifecycleOnPartialFillAndExposeExecutionStream() {
+        MessagePublisher publisher = payload -> true;
+        MatchingEngineService service = new MatchingEngineService(publisher, new ObjectMapper());
+
+        OrderMessage sell = new OrderMessage();
+        sell.setSchemaVersion(1);
+        sell.setType("NEW_ORDER");
+        sell.setClientOrderId("sell-100");
+        sell.setInstrumentId("ACME");
+        sell.setSide("SELL");
+        sell.setOrderType("LIMIT");
+        sell.setQuantity(100L);
+        sell.setLimitPrice(100000L);
+        sell.setTimeInForce("GTC");
+        sell.setClientTimestamp("2026-09-27T10:25:00.000Z");
+
+        OrderMessage buy = new OrderMessage();
+        buy.setSchemaVersion(1);
+        buy.setType("NEW_ORDER");
+        buy.setClientOrderId("buy-200");
+        buy.setInstrumentId("ACME");
+        buy.setSide("BUY");
+        buy.setOrderType("LIMIT");
+        buy.setQuantity(150L);
+        buy.setLimitPrice(101000L);
+        buy.setTimeInForce("GTC");
+        buy.setClientTimestamp("2026-09-27T10:25:01.000Z");
+
+        service.processOrder(sell);
+        service.processOrder(buy);
+
+        assertEquals("PARTIALLY_FILLED", service.getOrderStatus("buy-200").getStatus());
+        assertFalse(service.getExecutionFeed("ACME").isEmpty());
+    }
 }
