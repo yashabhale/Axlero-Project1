@@ -1,0 +1,16 @@
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+orderflow:
+  aeron:
+    channel: "aeron:ipc"
+    stream-id: 1001
