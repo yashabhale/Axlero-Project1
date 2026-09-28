@@ -6,9 +6,13 @@ import com.axelero.orderflow.model.OrderMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -23,7 +27,7 @@ public class MatchingEngineService {
     private final ObjectMapper objectMapper;
     private final Map<String, OrderBook> orderBooks = new ConcurrentHashMap<>();
     private final Map<String, OrderStatus> orderStatuses = new ConcurrentHashMap<>();
-    private final Map<String, java.util.List<ExecutionEvent>> executionFeed = new ConcurrentHashMap<>();
+    private final Map<String, MarketDataChannel> marketDataChannels = new ConcurrentHashMap<>();
 
     public MatchingEngineService(MessagePublisher orderPublisher, ObjectMapper objectMapper) {
         this.orderPublisher = orderPublisher;
@@ -33,18 +37,27 @@ public class MatchingEngineService {
     public boolean processOrder(OrderMessage order) {
         order.validate();
         OrderBook orderBook = orderBooks.computeIfAbsent(order.getInstrumentId(), key -> new OrderBook());
-        OrderStatus status = orderStatuses.computeIfAbsent(order.getClientOrderId(), id ->
-                new OrderStatus(id, order.getInstrumentId(), order.getSide(), "NEW", order.getQuantity()));
-        status.setInstrumentId(order.getInstrumentId());
-        status.setSide(order.getSide());
-        status.setQuantity(order.getQuantity());
-        status.setStatus("LIVE");
+        synchronized (orderBook) {
+            OrderStatus status = orderStatuses.computeIfAbsent(order.getClientOrderId(), id ->
+                    new OrderStatus(id, order.getInstrumentId(), order.getSide(), "NEW", order.getQuantity()));
+            status.setInstrumentId(order.getInstrumentId());
+            status.setSide(order.getSide());
+            status.setQuantity(order.getQuantity());
+            status.setStatus("LIVE");
 
-        boolean accepted = orderBook.process(order);
-        if (accepted && order.getQuantity() != null && order.getQuantity() == 0) {
-            status.setStatus("FILLED");
+            boolean accepted = orderBook.process(order);
+            status.setQuantity(order.getQuantity());
+            if (accepted && order.getQuantity() != null) {
+                if (order.getQuantity() == 0) {
+                    status.setStatus("FILLED");
+                } else if (("MARKET".equalsIgnoreCase(order.getOrderType())
+                        || !"GTC".equalsIgnoreCase(order.getTimeInForce()))
+                        && "LIVE".equals(status.getStatus())) {
+                    status.setStatus("CANCELLED");
+                }
+            }
+            return accepted;
         }
-        return accepted;
     }
 
     public OrderStatus getOrderStatus(String clientOrderId) {
@@ -59,13 +72,20 @@ public class MatchingEngineService {
             snapshot.put("asks", Map.of());
             return snapshot;
         }
-        snapshot.put("bids", orderBook.bidsSnapshot());
-        snapshot.put("asks", orderBook.asksSnapshot());
+        synchronized (orderBook) {
+            snapshot.put("bids", orderBook.bidsSnapshot());
+            snapshot.put("asks", orderBook.asksSnapshot());
+        }
         return snapshot;
     }
 
-    public java.util.List<ExecutionEvent> getExecutionFeed(String instrumentId) {
-        return executionFeed.getOrDefault(instrumentId, java.util.Collections.emptyList());
+    public List<ExecutionEvent> getExecutionFeed(String instrumentId) {
+        MarketDataChannel channel = marketDataChannels.get(instrumentId);
+        return channel == null ? List.of() : channel.snapshot();
+    }
+
+    public Flux<ExecutionEvent> executionStream(String instrumentId) {
+        return marketDataChannels.computeIfAbsent(instrumentId, ignored -> new MarketDataChannel()).stream.asFlux();
     }
 
     private void publishExecution(OrderMessage incoming, OrderMessage resting, long matchPrice, long tradeQty) {
@@ -80,10 +100,7 @@ public class MatchingEngineService {
                 buyOrderId,
                 sellOrderId);
 
-        executionFeed.computeIfAbsent(incoming.getInstrumentId(), key -> new java.util.ArrayList<>()).add(event);
-        if (!incoming.getInstrumentId().equals(resting.getInstrumentId())) {
-            executionFeed.computeIfAbsent(resting.getInstrumentId(), key -> new java.util.ArrayList<>()).add(event);
-        }
+        marketDataChannels.computeIfAbsent(incoming.getInstrumentId(), ignored -> new MarketDataChannel()).publish(event);
 
         try {
             orderPublisher.publish(objectMapper.writeValueAsBytes(event));
@@ -91,22 +108,31 @@ public class MatchingEngineService {
             throw new IllegalStateException("Failed to serialize execution event", e);
         }
 
-        OrderStatus incomingStatus = orderStatuses.get(incoming.getClientOrderId());
-        if (incomingStatus != null) {
-            if (incoming.getQuantity() != null && incoming.getQuantity() <= 0) {
-                incomingStatus.setStatus("FILLED");
-            } else if (incoming.getQuantity() != null && incoming.getQuantity() > 0) {
-                incomingStatus.setStatus("PARTIALLY_FILLED");
+    }
+
+    private static final class MarketDataChannel {
+        private static final int HISTORY_LIMIT = 500;
+        private final Deque<ExecutionEvent> history = new ArrayDeque<>();
+        private final Sinks.Many<ExecutionEvent> stream = Sinks.many().replay().limit(HISTORY_LIMIT);
+
+        private synchronized void publish(ExecutionEvent event) {
+            history.addLast(event);
+            if (history.size() > HISTORY_LIMIT) {
+                history.removeFirst();
             }
+            stream.tryEmitNext(event);
         }
 
-        OrderStatus restingStatus = orderStatuses.get(resting.getClientOrderId());
-        if (restingStatus != null) {
-            if (resting.getQuantity() != null && resting.getQuantity() <= 0) {
-                restingStatus.setStatus("FILLED");
-            } else if (resting.getQuantity() != null && resting.getQuantity() > 0) {
-                restingStatus.setStatus("PARTIALLY_FILLED");
-            }
+        private synchronized List<ExecutionEvent> snapshot() {
+            return new ArrayList<>(history);
+        }
+    }
+
+    private void updateStatusAfterFill(OrderMessage order) {
+        OrderStatus status = orderStatuses.get(order.getClientOrderId());
+        if (status != null) {
+            status.setQuantity(order.getQuantity());
+            status.setStatus(order.getQuantity() == 0 ? "FILLED" : "PARTIALLY_FILLED");
         }
     }
 
@@ -162,7 +188,7 @@ public class MatchingEngineService {
         private boolean processBuy(OrderMessage order) {
             while (order.getQuantity() != null && order.getQuantity() > 0 && !asks.isEmpty()) {
                 Map.Entry<Long, Deque<OrderMessage>> bestAsk = asks.firstEntry();
-                if (bestAsk == null || order.getLimitPrice() == null || order.getLimitPrice() < bestAsk.getKey()) {
+                if (bestAsk == null || (order.getLimitPrice() != null && order.getLimitPrice() < bestAsk.getKey())) {
                     break;
                 }
 
@@ -179,6 +205,8 @@ public class MatchingEngineService {
 
                 resting.setQuantity(resting.getQuantity() - tradeQty);
                 order.setQuantity(order.getQuantity() - tradeQty);
+                updateStatusAfterFill(resting);
+                updateStatusAfterFill(order);
 
                 if (resting.getQuantity() <= 0) {
                     queue.pollFirst();
@@ -188,7 +216,9 @@ public class MatchingEngineService {
                 }
             }
 
-            if (order.getQuantity() != null && order.getQuantity() > 0) {
+                if (order.getQuantity() != null && order.getQuantity() > 0
+                    && "LIMIT".equalsIgnoreCase(order.getOrderType())
+                    && "GTC".equalsIgnoreCase(order.getTimeInForce())) {
                 addOrderToBook(bids, order.getLimitPrice(), order);
             }
             return true;
@@ -197,7 +227,7 @@ public class MatchingEngineService {
         private boolean processSell(OrderMessage order) {
             while (order.getQuantity() != null && order.getQuantity() > 0 && !bids.isEmpty()) {
                 Map.Entry<Long, Deque<OrderMessage>> bestBid = bids.firstEntry();
-                if (bestBid == null || order.getLimitPrice() == null || order.getLimitPrice() > bestBid.getKey()) {
+                if (bestBid == null || (order.getLimitPrice() != null && order.getLimitPrice() > bestBid.getKey())) {
                     break;
                 }
 
@@ -214,6 +244,8 @@ public class MatchingEngineService {
 
                 resting.setQuantity(resting.getQuantity() - tradeQty);
                 order.setQuantity(order.getQuantity() - tradeQty);
+                updateStatusAfterFill(resting);
+                updateStatusAfterFill(order);
 
                 if (resting.getQuantity() <= 0) {
                     queue.pollFirst();
@@ -223,7 +255,9 @@ public class MatchingEngineService {
                 }
             }
 
-            if (order.getQuantity() != null && order.getQuantity() > 0) {
+                if (order.getQuantity() != null && order.getQuantity() > 0
+                    && "LIMIT".equalsIgnoreCase(order.getOrderType())
+                    && "GTC".equalsIgnoreCase(order.getTimeInForce())) {
                 addOrderToBook(asks, order.getLimitPrice(), order);
             }
             return true;

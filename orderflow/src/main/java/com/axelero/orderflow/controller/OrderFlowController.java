@@ -1,15 +1,20 @@
 package com.axelero.orderflow.controller;
 
 import com.axelero.orderflow.model.OrderMessage;
+import com.axelero.orderflow.model.ExecutionEvent;
 import com.axelero.orderflow.service.MatchingEngineService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 
 import java.time.Instant;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
+@CrossOrigin(origins = "http://localhost:5173")
 public class OrderFlowController {
 
     private final MatchingEngineService matchingEngineService;
@@ -82,5 +87,11 @@ public class OrderFlowController {
                     "eventTime", event.getEventTime()));
         }
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping(value = "/stream/executions/{instrumentId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<ExecutionEvent>> streamExecutions(@PathVariable String instrumentId) {
+        return matchingEngineService.executionStream(instrumentId)
+                .map(event -> ServerSentEvent.builder(event).event("trade").id(event.getEventTime()).build());
     }
 }

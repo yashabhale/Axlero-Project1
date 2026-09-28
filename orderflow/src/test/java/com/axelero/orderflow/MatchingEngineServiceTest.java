@@ -45,6 +45,37 @@ class MatchingEngineServiceTest {
     }
 
     @Test
+    void shouldMatchMarketBuyAtBestAvailableAskWithoutRestingIt() {
+        MatchingEngineService service = new MatchingEngineService(payload -> true, new ObjectMapper());
+        OrderMessage sell = order("sell-market-test", "SELL", "LIMIT", 75L, 100_000L);
+        OrderMessage buy = order("buy-market-test", "BUY", "MARKET", 75L, null);
+
+        service.processOrder(sell);
+        assertTrue(service.processOrder(buy));
+
+        assertEquals("FILLED", service.getOrderStatus("buy-market-test").getStatus());
+        assertEquals("FILLED", service.getOrderStatus("sell-market-test").getStatus());
+        assertEquals(1, service.getExecutionFeed("ACME").size());
+        assertEquals(100_000L, service.getExecutionFeed("ACME").getFirst().getMatchPrice());
+        assertTrue(service.getBookSnapshot("ACME").get("asks").toString().contains("{}"));
+    }
+
+    private OrderMessage order(String id, String side, String type, long quantity, Long price) {
+        OrderMessage order = new OrderMessage();
+        order.setSchemaVersion(1);
+        order.setType("NEW_ORDER");
+        order.setClientOrderId(id);
+        order.setInstrumentId("ACME");
+        order.setSide(side);
+        order.setOrderType(type);
+        order.setQuantity(quantity);
+        order.setLimitPrice(price);
+        order.setTimeInForce("GTC");
+        order.setClientTimestamp("2026-09-27T10:20:00.000Z");
+        return order;
+    }
+
+    @Test
     void shouldHonorBestPriceAndPartialFill() {
         final java.util.concurrent.atomic.AtomicInteger publishCount = new java.util.concurrent.atomic.AtomicInteger();
         MessagePublisher publisher = payload -> {
