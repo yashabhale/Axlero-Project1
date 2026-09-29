@@ -59,6 +59,7 @@ export function createStreamScheduler(config: StreamConfig, onTrade: (trade: Moc
   const intervalMs = 1000 / ratePerSecond;
   const startedAt = performance.now() + startDelayMs;
   const symbolPool = config.symbolPool ?? SYMBOLS;
+  const totalTicks = Math.max(1, Math.floor(durationMs / intervalMs));
   let tick = 0;
   let rafId: number | null = null;
   let active = true;
@@ -68,28 +69,34 @@ export function createStreamScheduler(config: StreamConfig, onTrade: (trade: Moc
       return;
     }
 
-    const elapsed = performance.now() - startedAt;
-    if (elapsed >= durationMs) {
+    const now = performance.now();
+    const elapsed = now - startedAt;
+    const dueTicks = Math.min(totalTicks, Math.floor(Math.max(0, elapsed) / intervalMs) + 1);
+
+    while (tick < dueTicks) {
+      const symbol = symbolPool[tick % symbolPool.length];
+      const side = tick % 2 === 0 ? 'BUY' : 'SELL';
+      const price = Number((100 + ((tick * 13) % 200) / 100 + (Math.random() - 0.5) * 1.5).toFixed(2));
+      const quantity = 10 + ((tick * 7) % 1000);
+
+      onTrade({
+        id: tick + 1,
+        symbol,
+        price,
+        quantity,
+        side,
+        ts: now,
+        sequence: tick,
+      });
+
+      tick += 1;
+    }
+
+    if (elapsed >= durationMs || tick >= totalTicks) {
       active = false;
       return;
     }
 
-    const symbol = symbolPool[tick % symbolPool.length];
-    const side = tick % 2 === 0 ? 'BUY' : 'SELL';
-    const price = Number((100 + ((tick * 13) % 200) / 100 + (Math.random() - 0.5) * 1.5).toFixed(2));
-    const quantity = 10 + ((tick * 7) % 1000);
-
-    onTrade({
-      id: tick + 1,
-      symbol,
-      price,
-      quantity,
-      side,
-      ts: performance.now(),
-      sequence: tick,
-    });
-
-    tick += 1;
     rafId = requestAnimationFrame(emit);
   };
 

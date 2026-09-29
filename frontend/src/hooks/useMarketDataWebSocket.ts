@@ -129,7 +129,10 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
   }, [clearReconnectTimer]);
 
   const connect = useCallback(() => {
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+    if (socketRef.current && (
+      socketRef.current.readyState === WebSocket.CONNECTING ||
+      socketRef.current.readyState === WebSocket.OPEN
+    )) {
       return;
     }
 
@@ -141,7 +144,7 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || socketRef.current !== socket) {
         socket.close();
         return;
       }
@@ -153,6 +156,10 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
     };
 
     socket.onmessage = (event) => {
+      if (!isMountedRef.current || socketRef.current !== socket) {
+        return;
+      }
+
       const message = parseFrame(event.data);
       if (!message) {
         return;
@@ -162,22 +169,33 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
     };
 
     socket.onerror = () => {
+      if (!isMountedRef.current || socketRef.current !== socket) {
+        return;
+      }
+
       setConnectionState('ERROR');
-      setLastError('WebSocket connection error');
+      setLastError('WebSocket server unavailable. Start the mock server with "npm run mock:ws".');
     };
 
     socket.onclose = (event) => {
-      if (!isMountedRef.current) {
+      if (!isMountedRef.current || socketRef.current !== socket) {
         return;
       }
+
+      socketRef.current = null;
 
       if (event.wasClean) {
         setConnectionState('DISCONNECTED');
         return;
       }
 
+      const isStartupFailure = event.code === 1006;
       setConnectionState('ERROR');
-      setLastError(`Connection closed unexpectedly (code: ${event.code})`);
+      setLastError(
+        isStartupFailure
+          ? 'Connection closed unexpectedly (code: 1006). Start the mock server with "npm run mock:ws" or verify the WebSocket URL.'
+          : `Connection closed unexpectedly (code: ${event.code})`
+      );
       scheduleReconnect();
     };
   }, [clearReconnectTimer, queueFrame, scheduleReconnect]);
@@ -185,10 +203,14 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
   const disconnect = useCallback(() => {
     clearReconnectTimer();
     clearBatchTimer();
-    if (socketRef.current) {
-      socketRef.current.onclose = null;
-      socketRef.current.close();
-      socketRef.current = null;
+    const socket = socketRef.current;
+    socketRef.current = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
     }
     reconnectAttemptsRef.current = 0;
     setReconnectAttempts(0);

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createStreamScheduler, type MockTrade } from '../benchmarks/mockTradeStream';
 import { BenchmarkStatsPanel } from './BenchmarkStatsPanel';
 
@@ -15,6 +15,7 @@ const Row = memo(function Row({ trade }: { trade: MockTrade }) {
         gridTemplateColumns: '80px 80px 90px 80px 110px',
         gap: 8,
         height: ROW_HEIGHT,
+        boxSizing: 'border-box',
         alignItems: 'center',
         padding: '0 10px',
         borderBottom: '1px solid rgba(148, 163, 184, 0.08)',
@@ -39,17 +40,31 @@ export function VirtualizedRecentTrades({ rate }: { rate: 100 | 1000 | 5000 | 10
   const [renderLatencyMs, setRenderLatencyMs] = useState(0);
   const lastFrameRef = useRef<number>(0);
   const pendingRef = useRef<MockTrade[]>([]);
+  const maxQueueDepthRef = useRef(0);
   const rafRef = useRef<number | null>(null);
-  const renderStartRef = useRef<number>(performance.now());
+  const renderStartRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (renderStartRef.current === null) {
+      return;
+    }
+
+    setRenderLatencyMs(performance.now() - renderStartRef.current);
+    renderStartRef.current = null;
+  }, [trades]);
 
   useEffect(() => {
+    setTrades([]);
+    setFps(60);
+    setQueueDepth(0);
+    setDroppedFrames(0);
+    setRenderLatencyMs(0);
+    pendingRef.current = [];
+    maxQueueDepthRef.current = 0;
+
     const scheduler = createStreamScheduler({ ratePerSecond: rate, durationMs: 20000, startDelayMs: 50 }, (trade) => {
       pendingRef.current.push(trade);
-      const now = performance.now();
-
-      if (now - lastFrameRef.current >= FPS_INTERVAL_MS || pendingRef.current.length > 40) {
-        flushPending();
-      }
+      maxQueueDepthRef.current = Math.max(maxQueueDepthRef.current, pendingRef.current.length);
     });
 
     const flushPending = () => {
@@ -57,8 +72,10 @@ export function VirtualizedRecentTrades({ rate }: { rate: 100 | 1000 | 5000 | 10
         return;
       }
 
-      renderStartRef.current = performance.now();
       const batch = pendingRef.current.splice(0, pendingRef.current.length);
+      setQueueDepth(maxQueueDepthRef.current);
+      maxQueueDepthRef.current = 0;
+      renderStartRef.current = performance.now();
       setTrades((previous) => [...previous, ...batch].slice(-MAX_ITEMS));
       const now = performance.now();
       const delta = now - lastFrameRef.current || 16;
@@ -66,8 +83,6 @@ export function VirtualizedRecentTrades({ rate }: { rate: 100 | 1000 | 5000 | 10
         setDroppedFrames((previous) => previous + 1);
       }
       lastFrameRef.current = now;
-      setQueueDepth(pendingRef.current.length);
-      setRenderLatencyMs(performance.now() - renderStartRef.current);
       setFps(Math.round(1000 / delta));
     };
 
@@ -87,11 +102,12 @@ export function VirtualizedRecentTrades({ rate }: { rate: 100 | 1000 | 5000 | 10
         cancelAnimationFrame(rafRef.current);
       }
       pendingRef.current = [];
+      maxQueueDepthRef.current = 0;
+      renderStartRef.current = null;
     };
   }, [rate]);
 
   const visibleTrades = useMemo(() => trades.slice(-VISIBLE_ROWS), [trades]);
-  const startIndex = Math.max(0, trades.length - VISIBLE_ROWS);
 
   return (
     <div style={{ background: '#0b1220', padding: 18, borderRadius: 16, border: '1px solid rgba(148,163,184,0.14)' }}>
@@ -110,12 +126,10 @@ export function VirtualizedRecentTrades({ rate }: { rate: 100 | 1000 | 5000 | 10
         <span>Time</span>
       </div>
 
-      <div style={{ height: VISIBLE_ROWS * ROW_HEIGHT + 4, overflow: 'hidden', borderRadius: 10, border: '1px solid rgba(148,163,184,0.12)' }}>
-        <div style={{ transform: `translateY(${startIndex * ROW_HEIGHT}px)` }}>
-          {visibleTrades.map((trade) => (
-            <Row key={trade.id} trade={trade} />
-          ))}
-        </div>
+      <div style={{ height: VISIBLE_ROWS * ROW_HEIGHT, overflow: 'hidden', borderRadius: 10, border: '1px solid rgba(148,163,184,0.12)' }}>
+        {visibleTrades.map((trade) => (
+          <Row key={trade.id} trade={trade} />
+        ))}
       </div>
     </div>
   );
