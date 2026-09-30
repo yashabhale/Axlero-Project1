@@ -1,3 +1,2 @@
 com\axelero\orderflow\OrderMessageTest.class
-com\axelero\orderflow\MarketDataControllerTest.class
 com\axelero\orderflow\MatchingEngineServiceTest.class

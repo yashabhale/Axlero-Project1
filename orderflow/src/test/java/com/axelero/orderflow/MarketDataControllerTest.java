@@ -7,8 +7,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.ServerSentEvent;
 
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MarketDataControllerTest {
 
@@ -31,6 +37,39 @@ class MarketDataControllerTest {
         assertNotNull(event);
         assertEquals("trade", event.event());
         assertEquals(100_000L, event.data().getMatchPrice());
+    }
+
+    @Test
+    void shouldStreamInitialAndUpdatedBookSnapshotsAsServerSentEvents() {
+        MatchingEngineService service = new MatchingEngineService(payload -> true, new ObjectMapper());
+        OrderFlowController controller = new OrderFlowController(service);
+        CopyOnWriteArrayList<ServerSentEvent<Map<String, Object>>> events = new CopyOnWriteArrayList<>();
+        CountDownLatch initialSnapshot = new CountDownLatch(1);
+        CountDownLatch updatedSnapshot = new CountDownLatch(1);
+        reactor.core.Disposable subscription = controller.streamBookSnapshots("ACME").subscribe(event -> {
+            events.add(event);
+            if (events.size() == 1) {
+                initialSnapshot.countDown();
+            } else {
+                updatedSnapshot.countDown();
+            }
+        });
+
+        try {
+            assertTrue(initialSnapshot.await(1, TimeUnit.SECONDS));
+            assertEquals("book", events.get(0).event());
+            assertTrue(((Map<?, ?>) events.get(0).data().get("bids")).isEmpty());
+
+            service.processOrder(order("buy-book", "BUY", 10L, 100_000L));
+
+            assertTrue(updatedSnapshot.await(1, TimeUnit.SECONDS));
+            assertTrue(((Map<?, ?>) events.get(1).data().get("bids")).containsKey("100000"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for book snapshots", e);
+        } finally {
+            subscription.dispose();
+        }
     }
 
     private com.axelero.orderflow.model.OrderMessage order(String id, String side, long quantity, long price) {

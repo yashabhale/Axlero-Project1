@@ -94,4 +94,10 @@ public class OrderFlowController {
         return matchingEngineService.executionStream(instrumentId)
                 .map(event -> ServerSentEvent.builder(event).event("trade").id(event.getEventTime()).build());
     }
+
+    @GetMapping(value = "/stream/book/{instrumentId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<Map<String, Object>>> streamBookSnapshots(@PathVariable String instrumentId) {
+        return matchingEngineService.bookSnapshotStream(instrumentId)
+                .map(snapshot -> ServerSentEvent.builder(snapshot).event("book").build());
+    }
 }

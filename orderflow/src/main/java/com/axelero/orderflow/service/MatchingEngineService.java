@@ -19,6 +19,7 @@ import java.util.TreeMap;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 
 @Service
 public class MatchingEngineService {
@@ -65,18 +66,26 @@ public class MatchingEngineService {
     }
 
     public Map<String, Object> getBookSnapshot(String instrumentId) {
-        Map<String, Object> snapshot = new HashMap<>();
         OrderBook orderBook = orderBooks.get(instrumentId);
         if (orderBook == null) {
-            snapshot.put("bids", Map.of());
-            snapshot.put("asks", Map.of());
-            return snapshot;
+            return emptyBookSnapshot();
         }
         synchronized (orderBook) {
-            snapshot.put("bids", orderBook.bidsSnapshot());
-            snapshot.put("asks", orderBook.asksSnapshot());
+            return createBookSnapshot(orderBook);
         }
-        return snapshot;
+    }
+
+    public Flux<Map<String, Object>> bookSnapshotStream(String instrumentId) {
+        return Flux.interval(Duration.ZERO, Duration.ofMillis(100))
+            .map(ignored -> getBookSnapshot(instrumentId));
+    }
+
+    private Map<String, Object> createBookSnapshot(OrderBook orderBook) {
+        return Map.of("bids", orderBook.bidsSnapshot(), "asks", orderBook.asksSnapshot());
+    }
+
+    private Map<String, Object> emptyBookSnapshot() {
+        return Map.of("bids", Map.of(), "asks", Map.of());
     }
 
     public List<ExecutionEvent> getExecutionFeed(String instrumentId) {
