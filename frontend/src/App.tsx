@@ -100,7 +100,7 @@ function App() {
             <li>Uses exponential backoff for reconnects.</li>
             <li>Stores latest frame in a ref-backed state model.</li>
             <li>Prevents unnecessary renders from every tick.</li>
-            <li>WebSocket URL: ws://localhost:8080/ws/market-data</li>
+            <li>WebSocket URL: ws://localhost:8081/ws/market-data</li>
           </ul>
         </section>
       </div>
