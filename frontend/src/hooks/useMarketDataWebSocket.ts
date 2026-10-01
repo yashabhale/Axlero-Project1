@@ -8,7 +8,7 @@ import type {
   WebSocketConnectionState,
 } from '../types/marketData';
 
-const DEFAULT_WS_PORT = 8081;
+const DEFAULT_WS_PORT = 8080;
 const WS_URL = ((import.meta.env.VITE_WS_URL as string | undefined) ?? `ws://${window.location.hostname}:${DEFAULT_WS_PORT}/ws/market-data`);
 const MAX_RECONNECT_DELAY_MS = 30000;
 const BASE_RECONNECT_DELAY_MS = 1000;

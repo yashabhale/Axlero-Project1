@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 
-const port = Number(process.env.PORT ?? 8081);
+const port = Number(process.env.PORT ?? 8080);
 const server = new WebSocketServer({ port, path: '/ws/market-data' });
 
 const createTrade = (symbol, side, price, quantity, index) => ({

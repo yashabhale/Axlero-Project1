@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "dev:all": "concurrently \"npm:mock:ws\" \"npm:dev\"",
+    "dev": "concurrently \"npm:mock:ws\" \"vite --host 0.0.0.0\"",
+    "dev:all": "npm:dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "mock:ws": "node mock-server/ws-mock-server.js"
