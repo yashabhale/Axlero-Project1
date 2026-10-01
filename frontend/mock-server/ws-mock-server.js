@@ -3,6 +3,20 @@ import { WebSocketServer } from 'ws';
 const port = Number(process.env.PORT ?? 8080);
 const server = new WebSocketServer({ port, path: '/ws/market-data' });
 
+server.on('listening', () => {
+  console.log(`Mock WebSocket server is running at ws://localhost:${port}/ws/market-data`);
+});
+
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.warn(`Port ${port} is already in use; using the existing WebSocket service.`);
+    return;
+  }
+
+  console.error('Mock WebSocket server failed to start:', error);
+  process.exitCode = 1;
+});
+
 const createTrade = (symbol, side, price, quantity, index) => ({
   type: 'trade',
   ts: Date.now(),
@@ -65,4 +79,3 @@ server.on('connection', (socket) => {
   });
 });
 
-console.log(`Mock WebSocket server is running at ws://localhost:${port}/ws/market-data`);
