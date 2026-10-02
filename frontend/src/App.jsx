@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import OrderBook from './components/OrderBook.jsx';
+import OrderEntry from './components/OrderEntry.jsx';
 import { appendTrades, formatPrice } from './tradeFeed.js';
 
 const API_URL = import.meta.env.VITE_ORDERFLOW_API ?? 'http://localhost:8080';
@@ -171,6 +173,9 @@ function App() {
           <strong className={`stream-state ${status}`}><span />{status}</strong>
         </div>
       </section>
+
+      <OrderEntry instrument={instrument} />
+      <OrderBook instrument={instrument} />
 
       <section className="monitor-grid">
         <div className="tape-panel">
