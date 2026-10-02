@@ -152,6 +152,18 @@ class MatchingEngineServiceTest {
     }
 
     @Test
+    void shouldRejectDuplicateClientOrderId() {
+        MatchingEngineService service = new MatchingEngineService(payload -> true, new ObjectMapper());
+
+        OrderMessage first = order("dup-order", "BUY", "LIMIT", 25L, 100_000L);
+        OrderMessage second = order("dup-order", "SELL", "LIMIT", 10L, 100_500L);
+
+        assertTrue(service.processOrder(first));
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.processOrder(second));
+        assertEquals("clientOrderId already exists", exception.getMessage());
+    }
+
+    @Test
     void shouldUpdateLifecycleOnPartialFillAndExposeExecutionStream() {
         MessagePublisher publisher = payload -> true;
         MatchingEngineService service = new MatchingEngineService(publisher, new ObjectMapper());

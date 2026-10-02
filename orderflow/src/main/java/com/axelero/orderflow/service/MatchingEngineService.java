@@ -37,10 +37,20 @@ public class MatchingEngineService {
 
     public boolean processOrder(OrderMessage order) {
         order.validate();
+        OrderStatus existingStatus = orderStatuses.get(order.getClientOrderId());
+        if (existingStatus != null) {
+            throw new IllegalArgumentException("clientOrderId already exists");
+        }
+
         OrderBook orderBook = orderBooks.computeIfAbsent(order.getInstrumentId(), key -> new OrderBook());
         synchronized (orderBook) {
-            OrderStatus status = orderStatuses.computeIfAbsent(order.getClientOrderId(), id ->
-                    new OrderStatus(id, order.getInstrumentId(), order.getSide(), "NEW", order.getQuantity()));
+            OrderStatus status = new OrderStatus(
+                    order.getClientOrderId(),
+                    order.getInstrumentId(),
+                    order.getSide(),
+                    "NEW",
+                    order.getQuantity());
+            orderStatuses.put(order.getClientOrderId(), status);
             status.setInstrumentId(order.getInstrumentId());
             status.setSide(order.getSide());
             status.setQuantity(order.getQuantity());
