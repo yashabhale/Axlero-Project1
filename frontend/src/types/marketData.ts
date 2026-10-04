@@ -46,6 +46,7 @@ export interface UseMarketDataWebSocketResult {
   socket: WebSocket | null;
   connectionState: WebSocketConnectionState;
   lastMessage: MarketDataFrame | null;
+  messageBatch: MarketDataFrame[];
   lastError: string | null;
   reconnectAttempts: number;
   connect: () => void;

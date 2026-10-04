@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/benchmarks/benchmarkcontrols.tsx","./src/benchmarks/mocktradestream.ts","./src/components/benchmarkstatspanel.tsx","./src/components/recenttradesstream.tsx","./src/components/virtualizedrecenttrades.tsx","./src/hooks/usemarketdatawebsocket.ts","./src/types/marketdata.ts"],"version":"5.9.3"}

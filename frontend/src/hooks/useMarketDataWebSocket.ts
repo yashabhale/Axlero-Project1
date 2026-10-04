@@ -71,26 +71,29 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
   const isMountedRef = useRef(true);
   const lastMessageRef = useRef<MarketDataFrame | null>(null);
   const batchFrameTimerRef = useRef<number | null>(null);
-  const latestFrameRef = useRef<MarketDataFrame | null>(null);
+  const pendingFramesRef = useRef<MarketDataFrame[]>([]);
 
   const [connectionState, setConnectionState] = useState<WebSocketConnectionState>('DISCONNECTED');
   const [lastMessage, setLastMessage] = useState<MarketDataFrame | null>(null);
+  const [messageBatch, setMessageBatch] = useState<MarketDataFrame[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
-  const flushLatestFrame = useCallback(() => {
-    const nextFrame = latestFrameRef.current;
-    if (!nextFrame) {
+  const flushPendingFrames = useCallback(() => {
+    if (pendingFramesRef.current.length === 0) {
       return;
     }
 
-    latestFrameRef.current = null;
+    const batch = pendingFramesRef.current;
+    pendingFramesRef.current = [];
+    const nextFrame = batch[batch.length - 1];
     lastMessageRef.current = nextFrame;
     setLastMessage(nextFrame);
+    setMessageBatch(batch);
   }, []);
 
   const queueFrame = useCallback((frame: MarketDataFrame) => {
-    latestFrameRef.current = frame;
+    pendingFramesRef.current.push(frame);
 
     if (batchFrameTimerRef.current !== null) {
       return;
@@ -98,9 +101,9 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
 
     batchFrameTimerRef.current = window.setTimeout(() => {
       batchFrameTimerRef.current = null;
-      flushLatestFrame();
+      flushPendingFrames();
     }, FRAME_BATCH_INTERVAL_MS);
-  }, [flushLatestFrame]);
+  }, [flushPendingFrames]);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimeoutRef.current !== null) {
@@ -217,9 +220,10 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
     setReconnectAttempts(0);
     setConnectionState('DISCONNECTED');
     setLastError(null);
-    latestFrameRef.current = null;
+    pendingFramesRef.current = [];
     lastMessageRef.current = null;
     setLastMessage(null);
+    setMessageBatch([]);
   }, [clearBatchTimer, clearReconnectTimer]);
 
   const send = useCallback((data: unknown) => {
@@ -247,12 +251,13 @@ export function useMarketDataWebSocket(): UseMarketDataWebSocketResult {
       socket: socketRef.current,
       connectionState,
       lastMessage,
+      messageBatch,
       lastError,
       reconnectAttempts,
       connect,
       disconnect,
       send,
     }),
-    [connect, connectionState, disconnect, lastError, lastMessage, reconnectAttempts, send],
+    [connect, connectionState, disconnect, lastError, lastMessage, messageBatch, reconnectAttempts, send],
   );
 }

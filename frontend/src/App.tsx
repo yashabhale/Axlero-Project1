@@ -1,24 +1,45 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BenchmarkControls, type BenchmarkRate } from './benchmarks/BenchmarkControls';
+import { DepthOfMarketChart } from './components/DepthOfMarketChart';
+import { OrderBookCanvas } from './components/OrderBookCanvas';
 import { RecentTradesStream } from './components/RecentTradesStream';
 import { VirtualizedRecentTrades } from './components/VirtualizedRecentTrades';
 import { useMarketDataWebSocket } from './hooks/useMarketDataWebSocket';
 import type { MarketDataFrame, TradeUpdate } from './types/marketData';
 
 function App() {
-  const { connectionState, lastMessage, lastError, reconnectAttempts, connect, disconnect, send } = useMarketDataWebSocket();
+  const { connectionState, lastMessage, messageBatch, lastError, reconnectAttempts, connect, disconnect, send } = useMarketDataWebSocket();
   const [recentFrames, setRecentFrames] = useState<MarketDataFrame[]>([]);
+  const [latestBook, setLatestBook] = useState<MarketDataFrame['book']>(undefined);
+  const [framesPerSecond, setFramesPerSecond] = useState(0);
+  const [totalFrames, setTotalFrames] = useState(0);
   const [benchmarkRate, setBenchmarkRate] = useState<BenchmarkRate>(1000);
+  const frameCountRef = useRef(0);
 
   useEffect(() => {
-    if (!lastMessage) {
+    if (messageBatch.length === 0) {
       return;
     }
 
-    setRecentFrames((previous) => [lastMessage, ...previous].slice(0, 8));
-  }, [lastMessage]);
+    setRecentFrames((previous) => [...messageBatch].reverse().concat(previous).slice(0, 8));
+    setTotalFrames((previous) => previous + messageBatch.length);
+    frameCountRef.current += messageBatch.length;
+    const bookFrame = [...messageBatch].reverse().find((frame) => frame.type === 'snapshot' && frame.book);
+    if (bookFrame?.book) {
+      setLatestBook(bookFrame.book);
+    }
+  }, [messageBatch]);
 
-  const bestBid = useMemo(() => {
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setFramesPerSecond(frameCountRef.current);
+      frameCountRef.current = 0;
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const latestTrade = useMemo(() => {
     const trade = lastMessage?.trade as TradeUpdate | undefined;
     return trade ? `${trade.symbol} @ ${trade.price}` : 'Waiting for trades';
   }, [lastMessage]);
@@ -44,7 +65,7 @@ function App() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 20 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 28 }}>OrderFlow — Live Market Feed</h1>
-          <p style={{ margin: '6px 0 0', color: '#aab7d4' }}>Member 5 • Week 1 WebSocket setup</p>
+          <p style={{ margin: '6px 0 0', color: '#aab7d4' }}>Member 5 • Weeks 1–4 high-performance UI</p>
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>
@@ -63,7 +84,9 @@ function App() {
         <StatusCard label="Connection" value={connectionState} accent={connectionState === 'CONNECTED' ? '#22c55e' : connectionState === 'ERROR' ? '#f87171' : '#60a5fa'} />
         <StatusCard label="Status" value={subscribeStatus} accent="#c084fc" />
         <StatusCard label="Reconnects" value={String(reconnectAttempts)} accent="#fbbf24" />
-        <StatusCard label="Best bid" value={bestBid} accent="#34d399" />
+        <StatusCard label="Latest trade" value={latestTrade} accent="#34d399" />
+        <StatusCard label="Feed frames / sec" value={framesPerSecond.toLocaleString()} accent="#38bdf8" />
+        <StatusCard label="Feed frames received" value={totalFrames.toLocaleString()} accent="#a3e635" />
       </div>
 
       {lastError && (
@@ -79,6 +102,18 @@ function App() {
       </div>
 
       <RecentTradesStream />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 0.9fr', gap: 18, marginBottom: 20 }}>
+        <section style={panelStyle()}>
+          <h3 style={headingStyle()}>HTML5 canvas order book</h3>
+          <OrderBookCanvas book={latestBook ?? null} />
+        </section>
+
+        <section style={panelStyle()}>
+          <h3 style={headingStyle()}>Depth of market</h3>
+          <DepthOfMarketChart book={latestBook ?? null} />
+        </section>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 18 }}>
         <section style={panelStyle()}>
@@ -98,8 +133,9 @@ function App() {
           <h3 style={headingStyle()}>Quick notes</h3>
           <ul style={{ margin: 0, paddingLeft: 18, color: '#d8e1f5', lineHeight: 1.8 }}>
             <li>Uses exponential backoff for reconnects.</li>
-            <li>Stores latest frame in a ref-backed state model.</li>
+            <li>Batches every received frame before updating the UI.</li>
             <li>Prevents unnecessary renders from every tick.</li>
+            <li>Canvas and DOM visualizers compare throughput and clarity.</li>
             <li>WebSocket URL: ws://localhost:8080/ws/market-data</li>
           </ul>
         </section>

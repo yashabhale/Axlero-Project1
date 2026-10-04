@@ -44,6 +44,7 @@ export function RecentTradesStream() {
   const lastFrameTimeRef = useRef<number>(0);
 
   useEffect(() => {
+    setIsLive(true);
     const scheduler = createStreamScheduler({
       ratePerSecond: 10000,
       durationMs: 15000,
@@ -82,10 +83,11 @@ export function RecentTradesStream() {
     };
 
     rafRef.current = requestAnimationFrame(tick);
+    const liveTimeout = window.setTimeout(() => setIsLive(false), 15100);
 
     return () => {
-      setIsLive(false);
       scheduler.stop();
+      window.clearTimeout(liveTimeout);
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
       }
