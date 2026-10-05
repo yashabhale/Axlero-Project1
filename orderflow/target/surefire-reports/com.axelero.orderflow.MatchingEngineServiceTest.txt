@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.axelero.orderflow.MatchingEngineServiceTest
 -------------------------------------------------------------------------------
-Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.141 s -- in com.axelero.orderflow.MatchingEngineServiceTest
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.186 s -- in com.axelero.orderflow.MatchingEngineServiceTest
