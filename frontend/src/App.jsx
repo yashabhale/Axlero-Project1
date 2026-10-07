@@ -136,6 +136,7 @@ function App() {
           <span>ORDERFLOW</span>
         </a>
         <div className="topbar-right">
+          <span className={`header-live-status ${status}`}><i />{status === 'live' ? 'LIVE' : status === 'offline' ? 'OFFLINE' : 'CONNECTING'}</span>
           <span className="environment"><span className="environment-dot" /> SIMULATED VENUE</span>
           <time>{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</time>
         </div>
@@ -170,12 +171,14 @@ function App() {
         </div>
         <div className="overview-stat stream-stat">
           <span className="eyebrow">STREAM</span>
-          <strong className={`stream-state ${status}`}><span />{status}</strong>
+          <strong className={`stream-state ${status}`} aria-live="polite"><span />{status}</strong>
         </div>
       </section>
 
-      <OrderEntry instrument={instrument} />
-      <OrderBook instrument={instrument} />
+      <div className="market-grid">
+        <OrderEntry instrument={instrument} />
+        <OrderBook instrument={instrument} />
+      </div>
 
       <section className="monitor-grid">
         <div className="tape-panel">

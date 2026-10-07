@@ -202,7 +202,7 @@ function OrderEntry({ instrument = 'ACME' }) {
         <span className="instrument-badge">{instrument}</span>
       </div>
 
-      <form className="order-entry-form" onSubmit={handleSubmit} noValidate>
+      <form className="order-entry-form" onSubmit={handleSubmit} noValidate aria-busy={submitting}>
         <div className="field-group">
           <label htmlFor="order-instrument">Instrument</label>
           <input id="order-instrument" type="text" value={instrument} readOnly aria-readonly="true" />
@@ -215,6 +215,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               type="button"
               className={`toggle-button buy ${isBuy ? 'active' : ''}`}
               onClick={() => updateField('side', 'BUY')}
+              aria-pressed={isBuy}
             >
               BUY
             </button>
@@ -222,6 +223,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               type="button"
               className={`toggle-button sell ${!isBuy ? 'active' : ''}`}
               onClick={() => updateField('side', 'SELL')}
+              aria-pressed={!isBuy}
             >
               SELL
             </button>
@@ -235,6 +237,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               type="button"
               className={`toggle-button ${form.orderType === 'LIMIT' ? 'active' : ''}`}
               onClick={() => updateField('orderType', 'LIMIT')}
+              aria-pressed={form.orderType === 'LIMIT'}
             >
               LIMIT
             </button>
@@ -242,6 +245,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               type="button"
               className={`toggle-button ${form.orderType === 'MARKET' ? 'active' : ''}`}
               onClick={() => updateField('orderType', 'MARKET')}
+              aria-pressed={form.orderType === 'MARKET'}
             >
               MARKET
             </button>

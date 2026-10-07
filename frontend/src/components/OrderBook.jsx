@@ -144,7 +144,7 @@ function OrderBook({ instrument = 'ACME' }) {
         <div className="book-column asks-column">
           <div className="book-header">
             <span>ASKS</span>
-            <span>QTY</span>
+            <span>PRICE / QTY</span>
           </div>
           <div className="book-table-wrap">
             <table className="book-table">
@@ -169,7 +169,7 @@ function OrderBook({ instrument = 'ACME' }) {
         <div className="book-column bids-column">
           <div className="book-header">
             <span>BIDS</span>
-            <span>QTY</span>
+            <span>PRICE / QTY</span>
           </div>
           <div className="book-table-wrap">
             <table className="book-table">
