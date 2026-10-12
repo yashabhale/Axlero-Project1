@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "test": "vitest run"
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest run",
+    "mock:ws": "node mock-server/ws-mock-server.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -15,6 +17,10 @@
     "react-dom": "latest"
   },
   "devDependencies": {
-    "vitest": "latest"
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest",
+    "vitest": "latest",
+    "ws": "latest"
   }
 }
