@@ -53,9 +53,29 @@ describe('OrderEntry contract and validation', () => {
       quantity: 'Quantity must be greater than 0.',
     });
 
+    expect(validateOrderForm({ quantity: '1.5', limitPrice: '100' }, 'BUY', 'LIMIT')).toMatchObject({
+      valid: false,
+      quantity: 'Quantity must be a whole number.',
+    });
+
+    expect(validateOrderForm({ quantity: '9007199254740992', limitPrice: '100' }, 'BUY', 'LIMIT')).toMatchObject({
+      valid: false,
+      quantity: 'Quantity is too large.',
+    });
+
     expect(validateOrderForm({ quantity: '10', limitPrice: '0.00' }, 'BUY', 'LIMIT')).toMatchObject({
       valid: false,
       limitPrice: 'Limit price must be greater than 0.',
+    });
+
+    expect(validateOrderForm({ quantity: '10', limitPrice: '0.001' }, 'BUY', 'LIMIT')).toMatchObject({
+      valid: false,
+      limitPrice: 'Limit price must be at least 0.01.',
+    });
+
+    expect(validateOrderForm({ quantity: '10', limitPrice: '12.345' }, 'BUY', 'LIMIT')).toMatchObject({
+      valid: false,
+      limitPrice: 'Limit price must have no more than 2 decimal places.',
     });
 
     expect(validateOrderForm({ quantity: '10', limitPrice: '25' }, 'BUY', 'MARKET')).toMatchObject({

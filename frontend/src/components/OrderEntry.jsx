@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 const API_URL = import.meta.env.VITE_ORDERFLOW_API ?? 'http://localhost:8080';
 const DEFAULT_TIME_IN_FORCE = 'GTC';
@@ -36,9 +36,15 @@ export function validateOrderForm(values = {}, side = 'BUY', orderType = 'LIMIT'
     if (!Number.isFinite(quantity)) {
       errors.valid = false;
       errors.quantity = 'Quantity must be numeric.';
+    } else if (!Number.isInteger(quantity)) {
+      errors.valid = false;
+      errors.quantity = 'Quantity must be a whole number.';
     } else if (quantity <= 0) {
       errors.valid = false;
       errors.quantity = 'Quantity must be greater than 0.';
+    } else if (!Number.isSafeInteger(quantity)) {
+      errors.valid = false;
+      errors.quantity = 'Quantity is too large.';
     }
   }
 
@@ -49,12 +55,23 @@ export function validateOrderForm(values = {}, side = 'BUY', orderType = 'LIMIT'
       errors.limitPrice = 'Limit price is required for LIMIT orders.';
     } else {
       const limitPrice = Number(limitValue);
+      const limitPriceCents = limitPrice * 100;
+      const roundedLimitPriceCents = Math.round(limitPriceCents);
       if (!Number.isFinite(limitPrice)) {
         errors.valid = false;
         errors.limitPrice = 'Limit price must be numeric.';
       } else if (limitPrice <= 0) {
         errors.valid = false;
         errors.limitPrice = 'Limit price must be greater than 0.';
+      } else if (roundedLimitPriceCents < 1) {
+        errors.valid = false;
+        errors.limitPrice = 'Limit price must be at least 0.01.';
+      } else if (!Number.isSafeInteger(roundedLimitPriceCents)) {
+        errors.valid = false;
+        errors.limitPrice = 'Limit price is too large.';
+      } else if (Math.abs(limitPriceCents - roundedLimitPriceCents) > 1e-8) {
+        errors.valid = false;
+        errors.limitPrice = 'Limit price must have no more than 2 decimal places.';
       }
     }
   } else {
@@ -102,6 +119,7 @@ function OrderEntry({ instrument = 'ACME' }) {
   const [errors, setErrors] = useState({ valid: true, quantity: '', limitPrice: '' });
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState({ type: 'idle', message: '' });
+  const submissionInProgress = useRef(false);
 
   const orderTypeLabel = form.orderType === 'LIMIT' ? 'Limit' : 'Market';
 
@@ -114,7 +132,12 @@ function OrderEntry({ instrument = 'ACME' }) {
       return next;
     });
 
-    setErrors((current) => ({ ...current, [field]: '', valid: true }));
+    setErrors((current) => ({
+      ...current,
+      [field]: '',
+      ...(field === 'orderType' ? { limitPrice: '' } : {}),
+      valid: true,
+    }));
     if (feedback.type !== 'idle') {
       setFeedback({ type: 'idle', message: '' });
     }
@@ -122,6 +145,7 @@ function OrderEntry({ instrument = 'ACME' }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (submissionInProgress.current) return;
 
     const validation = validateOrderForm(form, form.side, form.orderType);
     setErrors(validation);
@@ -140,6 +164,7 @@ function OrderEntry({ instrument = 'ACME' }) {
       timeInForce: DEFAULT_TIME_IN_FORCE,
     });
 
+    submissionInProgress.current = true;
     setSubmitting(true);
     setFeedback({ type: 'idle', message: '' });
 
@@ -164,7 +189,12 @@ function OrderEntry({ instrument = 'ACME' }) {
       }
 
       if (!response.ok) {
-        throw new Error(parsedBody.error || parsedBody.reason || parsedBody.message || 'Order submission failed.');
+        const responseMessage = typeof parsedBody === 'string'
+          ? parsedBody
+          : parsedBody && typeof parsedBody === 'object'
+            ? parsedBody.error || parsedBody.reason || parsedBody.message
+            : '';
+        throw new Error(responseMessage || 'Order submission failed.');
       }
 
       const successMessage = payload.orderType === 'LIMIT'
@@ -186,6 +216,7 @@ function OrderEntry({ instrument = 'ACME' }) {
         message: error.message || 'Unable to submit the order. Please try again.',
       });
     } finally {
+      submissionInProgress.current = false;
       setSubmitting(false);
     }
   }
@@ -216,6 +247,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               className={`toggle-button buy ${isBuy ? 'active' : ''}`}
               onClick={() => updateField('side', 'BUY')}
               aria-pressed={isBuy}
+              disabled={submitting}
             >
               BUY
             </button>
@@ -224,6 +256,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               className={`toggle-button sell ${!isBuy ? 'active' : ''}`}
               onClick={() => updateField('side', 'SELL')}
               aria-pressed={!isBuy}
+              disabled={submitting}
             >
               SELL
             </button>
@@ -238,6 +271,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               className={`toggle-button ${form.orderType === 'LIMIT' ? 'active' : ''}`}
               onClick={() => updateField('orderType', 'LIMIT')}
               aria-pressed={form.orderType === 'LIMIT'}
+              disabled={submitting}
             >
               LIMIT
             </button>
@@ -246,6 +280,7 @@ function OrderEntry({ instrument = 'ACME' }) {
               className={`toggle-button ${form.orderType === 'MARKET' ? 'active' : ''}`}
               onClick={() => updateField('orderType', 'MARKET')}
               aria-pressed={form.orderType === 'MARKET'}
+              disabled={submitting}
             >
               MARKET
             </button>
@@ -259,12 +294,14 @@ function OrderEntry({ instrument = 'ACME' }) {
             type="number"
             min="1"
             step="1"
+            disabled={submitting}
             value={form.quantity}
             onChange={(event) => updateField('quantity', event.target.value)}
             placeholder="100"
             aria-invalid={Boolean(errors.quantity)}
+            aria-describedby={errors.quantity ? 'order-quantity-error' : undefined}
           />
-          {errors.quantity && <span className="field-error">{errors.quantity}</span>}
+          {errors.quantity && <span className="field-error" id="order-quantity-error">{errors.quantity}</span>}
         </div>
 
         {form.orderType === 'LIMIT' && (
@@ -275,12 +312,14 @@ function OrderEntry({ instrument = 'ACME' }) {
               type="number"
               min="0.01"
               step="0.01"
+              disabled={submitting}
               value={form.limitPrice}
               onChange={(event) => updateField('limitPrice', event.target.value)}
               placeholder="1234.50"
               aria-invalid={Boolean(errors.limitPrice)}
+              aria-describedby={errors.limitPrice ? 'order-limit-price-error' : undefined}
             />
-            {errors.limitPrice && <span className="field-error">{errors.limitPrice}</span>}
+            {errors.limitPrice && <span className="field-error" id="order-limit-price-error">{errors.limitPrice}</span>}
           </div>
         )}
 
@@ -289,7 +328,11 @@ function OrderEntry({ instrument = 'ACME' }) {
         </button>
 
         {feedback.message && (
-          <div className={`order-feedback ${feedback.type}`} role="status" aria-live="polite">
+          <div
+            className={`order-feedback ${feedback.type}`}
+            role={feedback.type === 'error' ? 'alert' : 'status'}
+            aria-live={feedback.type === 'error' ? 'assertive' : 'polite'}
+          >
             {feedback.message}
           </div>
         )}
