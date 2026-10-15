@@ -1,8 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
+import { formatPrice } from '../tradeFeed.js';
 
 const API_URL = import.meta.env.VITE_ORDERFLOW_API ?? 'http://localhost:8080';
 
+export function calculateBookSpread(snapshot = {}) {
+  const bestPrice = (levels, isBid) => {
+    if (!Array.isArray(levels)) return null;
+
+    return levels.reduce((best, level) => {
+      const value = level?.price;
+      if (typeof value !== 'number' && typeof value !== 'string') return best;
+
+      const price = Number(value);
+      if (!Number.isFinite(price) || price <= 0) return best;
+      if (best === null) return price;
+      return isBid ? Math.max(best, price) : Math.min(best, price);
+    }, null);
+  };
+
+  const bestBid = bestPrice(snapshot?.bids, true);
+  const bestAsk = bestPrice(snapshot?.asks, false);
+  const spread = bestBid !== null && bestAsk !== null ? bestAsk - bestBid : null;
+
+  return {
+    bestBid,
+    bestAsk,
+    spread: Number.isFinite(spread) ? spread : null,
+  };
+}
+
 export function normalizeBookSnapshot(snapshot = {}) {
+  const toFiniteNumber = (value) => {
+    if (typeof value !== 'number' && typeof value !== 'string') return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
   const normalizeSide = (side) => {
     if (!side || typeof side !== 'object') return [];
 
@@ -14,23 +49,33 @@ export function normalizeBookSnapshot(snapshot = {}) {
         }));
 
     return entries
-      .map((entry) => {
-        const priceValue = Number(entry.price ?? entry[0] ?? 0);
-        const quantityValue = Array.isArray(entry.quantities)
-          ? entry.quantities.reduce((sum, quantity) => sum + Number(quantity || 0), 0)
-          : Number(entry.quantities ?? 0);
+      .flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') return [];
 
-        return {
-          price: Number.isFinite(priceValue) ? priceValue : 0,
-          quantity: Number.isFinite(quantityValue) ? quantityValue : 0,
-        };
+        const price = toFiniteNumber(entry.price ?? entry[0]);
+        const quantitySource = entry.quantities ?? entry.quantity ?? entry[1] ?? 0;
+        const quantities = Array.isArray(quantitySource) ? quantitySource : [quantitySource];
+        const parsedQuantities = quantities.map(toFiniteNumber);
+
+        if (
+          price === null
+          || price <= 0
+          || parsedQuantities.some((quantity) => quantity === null || quantity < 0)
+        ) {
+          return [];
+        }
+
+        return [{
+          price,
+          quantity: parsedQuantities.reduce((sum, quantity) => sum + quantity, 0),
+        }];
       })
-      .filter((level) => Number.isFinite(level.price) && level.price > 0 && level.quantity >= 0)
       .sort((left, right) => right.price - left.price);
   };
 
-  const normalizedBids = normalizeSide(snapshot.bids ?? {});
-  const normalizedAsks = normalizeSide(snapshot.asks ?? {});
+  const safeSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+  const normalizedBids = normalizeSide(safeSnapshot.bids ?? {});
+  const normalizedAsks = normalizeSide(safeSnapshot.asks ?? {});
 
   return {
     bids: normalizedBids.sort((left, right) => right.price - left.price),
@@ -121,6 +166,7 @@ function OrderBook({ instrument = 'ACME' }) {
 
   const hasBidData = snapshot.bids.length > 0;
   const hasAskData = snapshot.asks.length > 0;
+  const { bestBid, bestAsk, spread } = calculateBookSpread(snapshot);
   const visibleBids = useMemo(() => snapshot.bids.slice(0, 12), [snapshot.bids]);
   const visibleAsks = useMemo(() => snapshot.asks.slice(0, 12), [snapshot.asks]);
 
@@ -140,6 +186,21 @@ function OrderBook({ instrument = 'ACME' }) {
         </div>
       )}
 
+      <div className="order-book-summary" aria-label="Best prices and spread">
+        <div className="order-book-summary-item">
+          <span>BEST BID</span>
+          <strong className="bid-price">{formatPrice(bestBid)}</strong>
+        </div>
+        <div className="order-book-summary-item">
+          <span>BEST ASK</span>
+          <strong className="ask-price">{formatPrice(bestAsk)}</strong>
+        </div>
+        <div className="order-book-summary-item">
+          <span>SPREAD</span>
+          <strong>{formatPrice(spread)}</strong>
+        </div>
+      </div>
+
       <div className="order-book-grid">
         <div className="book-column asks-column">
           <div className="book-header">
@@ -152,7 +213,7 @@ function OrderBook({ instrument = 'ACME' }) {
                 {visibleAsks.length > 0 ? (
                   visibleAsks.map((level, index) => (
                     <tr key={`ask-${level.price}-${index}`}>
-                      <td className="price ask-price">{level.price.toLocaleString()}</td>
+                      <td className="price ask-price">{formatPrice(level.price)}</td>
                       <td className="quantity">{level.quantity.toLocaleString()}</td>
                     </tr>
                   ))
@@ -177,7 +238,7 @@ function OrderBook({ instrument = 'ACME' }) {
                 {visibleBids.length > 0 ? (
                   visibleBids.map((level, index) => (
                     <tr key={`bid-${level.price}-${index}`}>
-                      <td className="price bid-price">{level.price.toLocaleString()}</td>
+                      <td className="price bid-price">{formatPrice(level.price)}</td>
                       <td className="quantity">{level.quantity.toLocaleString()}</td>
                     </tr>
                   ))
