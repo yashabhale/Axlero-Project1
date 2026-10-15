@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { appendTrades, formatPrice, MAX_VISIBLE_TRADES } from './tradeFeed.js';
 
 describe('trade feed performance', () => {
+  it('keeps batched trades newest-first ahead of the existing feed', () => {
+    const existing = [{ id: 'older' }];
+    const result = appendTrades(existing, [{ id: 'first' }, { id: 'latest' }]);
+
+    expect(result.map((trade) => trade.id)).toEqual(['latest', 'first', 'older']);
+  });
+
   it('bounds retained trades while appending a 50,000-event burst', () => {
     const batch = Array.from({ length: 50_000 }, (_, index) => ({ id: index }));
     const startedAt = performance.now();
